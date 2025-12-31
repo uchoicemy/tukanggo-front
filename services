@@ -1,0 +1,293 @@
+import { useState } from "react";
+import { useRouter } from "next/router";
+import Header from "../components/header";
+import Footer from "../components/footer";
+import db from "../lib/db";
+
+/**
+ * HTML → Plain Text (SSR safe)
+ */
+function htmlToText(html, maxLength = 60) {
+  if (!html) return "";
+  let text = html.replace(/<img[^>]*>/gi, "");
+  text = text.replace(/<[^>]+>/g, "");
+  text = text.replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
+}
+
+export default function ServicesPage({
+  initialServices,
+  totalPages,
+  currentPage,
+  search,
+}) {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState(search || "");
+  const [previewImage, setPreviewImage] = useState(null);
+
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    router.push({
+      pathname: "/services",
+      query: { page, q: searchQuery || undefined },
+    });
+  };
+
+  const submitSearch = () => {
+    router.push({
+      pathname: "/services",
+      query: { page: 1, q: searchQuery || undefined },
+    });
+  };
+
+  const shareService = (service) => {
+    const url = `${window.location.origin}/services-details?id=${service.id}`;
+    if (navigator.share) {
+      navigator.share({ title: service.name, url });
+    } else {
+      navigator.clipboard.writeText(url);
+      alert("Service link copied!");
+    }
+  };
+
+  return (
+    <>
+      <Header />
+
+      {/* Breadcrumb */}
+      <section className="breadcrumbs">
+        <div className="container">
+          <h2>Services</h2>
+        </div>
+      </section>
+
+      {/* Search Bar */}
+      <div style={{ maxWidth: 1000, margin: "20px auto", display: "flex", gap: 12 }}>
+        <input
+          type="text"
+          placeholder="Search service, area, company..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submitSearch()}
+          style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ccc" }}
+        />
+        <button
+          onClick={submitSearch}
+          style={{
+            padding: "10px 20px",
+            borderRadius: 8,
+            border: "none",
+            background: "#2196F3",
+            color: "#fff",
+          }}
+        >
+          Search
+        </button>
+      </div>
+
+      {/* Services */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px,1fr))",
+          gap: 20,
+          maxWidth: 1000,
+          margin: "20px auto",
+        }}
+      >
+        {initialServices.map((service) => (
+          <div
+            key={service.id}
+            style={{
+              background: "#fff",
+              padding: 15,
+              borderRadius: 12,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+            }}
+          >
+            {service.thumbnail ? (
+              <img
+                src={service.thumbnail}
+                alt={service.name}
+                onClick={() => setPreviewImage(service.thumbnail)}
+                style={{
+                  width: "100%",
+                  height: 150,
+                  objectFit: "cover",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  height: 150,
+                  background: "#eee",
+                  borderRadius: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                No Image
+              </div>
+            )}
+
+            <h3 style={{ marginTop: 10 }}>{service.name}</h3>
+            <p><strong>Area:</strong> {service.area || "-"}</p>
+            <p><strong>Company:</strong> {service.companyName || "-"}</p>
+            <p>{htmlToText(service.description)}</p>
+
+            <button
+              onClick={() => router.push(`/services-details?id=${service.id}`)}
+              style={{
+                width: "100%",
+                marginTop: 10,
+                padding: 8,
+                borderRadius: 6,
+                border: "none",
+                background: "#2196F3",
+                color: "#fff",
+              }}
+            >
+              View Details
+            </button>
+
+            <button
+              onClick={() => shareService(service)}
+              style={{
+                width: "100%",
+                marginTop: 6,
+                padding: 6,
+                borderRadius: 6,
+                border: "1px solid #2196F3",
+                background: "#fff",
+                color: "#2196F3",
+              }}
+            >
+              Share
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1}>
+            Prev
+          </button>
+
+          {Array.from({ length: totalPages }).map((_, i) => {
+            const page = i + 1;
+            return (
+              <button
+                key={page}
+                onClick={() => goToPage(page)}
+                style={{
+                  margin: "0 5px",
+                  fontWeight: page === currentPage ? "bold" : "normal",
+                }}
+              >
+                {page}
+              </button>
+            );
+          })}
+
+          <button
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </button>
+        </div>
+      )}
+
+      {/* Image Preview */}
+      {previewImage && (
+        <div
+          onClick={() => setPreviewImage(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <img src={previewImage} style={{ maxWidth: "90%", maxHeight: "90%" }} />
+        </div>
+      )}
+
+      <Footer />
+    </>
+  );
+}
+
+/* ================= SERVER SIDE ================= */
+
+export async function getServerSideProps({ query }) {
+  try {
+    const page = parseInt(query.page || "1");
+    const search = query.q || "";
+    const ITEMS_PER_PAGE = 15;
+    const offset = (page - 1) * ITEMS_PER_PAGE;
+
+    const searchSQL = search
+      ? `AND (
+          p.name LIKE ?
+          OR p.description LIKE ?
+          OR sp.companyName LIKE ?
+          OR sa.area LIKE ?
+        )`
+      : "";
+
+    const searchParams = search
+      ? [`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`]
+      : [];
+
+    const rows = db.prepare(`
+      SELECT 
+        p.id,
+        p.name,
+        p.description,
+        p.thumbnail,
+        sa.area,
+        sp.companyName
+      FROM products p
+      LEFT JOIN service_providers sp ON p.serviceProviderId = sp.id
+      LEFT JOIN service_areas sa ON p.serviceProviderId = sa.id
+      WHERE p.isApproved = 1
+        AND p.active = 1
+        AND p.deletedAt IS NULL
+        ${searchSQL}
+      ORDER BY p.name
+      LIMIT ? OFFSET ?
+    `).all(...searchParams, ITEMS_PER_PAGE, offset);
+
+    const total = db.prepare(`
+      SELECT COUNT(*) as total
+      FROM products p
+      LEFT JOIN service_providers sp ON p.serviceProviderId = sp.id
+      LEFT JOIN service_areas sa ON p.serviceProviderId = sa.id
+      WHERE p.isApproved = 1
+        AND p.active = 1
+        AND p.deletedAt IS NULL
+        ${searchSQL}
+    `).get(...searchParams).total;
+
+    return {
+      props: {
+        initialServices: rows,
+        totalPages: Math.ceil(total / ITEMS_PER_PAGE),
+        currentPage: page,
+        search,
+      },
+    };
+  } catch (err) {
+    console.error(err);
+    return { props: { initialServices: [], totalPages: 1, currentPage: 1 } };
+  }
+}
